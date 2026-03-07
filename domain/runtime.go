@@ -1,0 +1,73 @@
+package domain
+
+// Phase 表示小说创作阶段。
+type Phase string
+
+const (
+	PhaseInit     Phase = "init"
+	PhasePremise  Phase = "premise"
+	PhaseOutline  Phase = "outline"
+	PhaseWriting  Phase = "writing"
+	PhaseComplete Phase = "complete"
+)
+
+// FlowState 当前活动流程类型，用于 checkpoint 恢复。
+type FlowState string
+
+const (
+	FlowWriting   FlowState = "writing"
+	FlowReviewing FlowState = "reviewing"
+	FlowRewriting FlowState = "rewriting"
+	FlowPolishing FlowState = "polishing"
+	FlowSteering  FlowState = "steering"
+)
+
+// Progress 进度追踪，持久化到 meta/progress.json。
+type Progress struct {
+	NovelName         string      `json:"novel_name"`
+	Phase             Phase       `json:"phase"`
+	CurrentChapter    int         `json:"current_chapter"`
+	TotalChapters     int         `json:"total_chapters"`
+	CompletedChapters []int       `json:"completed_chapters"`
+	TotalWordCount    int         `json:"total_word_count"`
+	ChapterWordCounts map[int]int `json:"chapter_word_counts,omitempty"` // 每章字数，支持重写时修正总字数
+	InProgressChapter int         `json:"in_progress_chapter,omitempty"` // 正在写作的章节（场景级恢复）
+	CompletedScenes   []int       `json:"completed_scenes,omitempty"`    // 当前章节已完成的场景编号
+	Flow              FlowState   `json:"flow,omitempty"`                // 当前流程
+	PendingRewrites   []int       `json:"pending_rewrites,omitempty"`    // 待重写章节队列
+	RewriteReason     string      `json:"rewrite_reason,omitempty"`      // 重写原因
+}
+
+// IsResumable 判断是否可以从断点恢复。
+func (p *Progress) IsResumable() bool {
+	return p.Phase == PhaseWriting && p.CurrentChapter > 0
+}
+
+// NextChapter 返回下一个要写的章节号。
+func (p *Progress) NextChapter() int {
+	if len(p.CompletedChapters) == 0 {
+		return 1
+	}
+	max := 0
+	for _, ch := range p.CompletedChapters {
+		if ch > max {
+			max = ch
+		}
+	}
+	return max + 1
+}
+
+// RunMeta 运行元信息，持久化到 meta/run.json。
+type RunMeta struct {
+	StartedAt    string       `json:"started_at"`
+	Style        string       `json:"style"`
+	Model        string       `json:"model"`
+	SteerHistory []SteerEntry `json:"steer_history,omitempty"`
+	PendingSteer string       `json:"pending_steer,omitempty"` // 未完成的 Steer 指令，中断恢复时重新注入
+}
+
+// SteerEntry 用户干预记录。
+type SteerEntry struct {
+	Input     string `json:"input"`
+	Timestamp string `json:"timestamp"`
+}

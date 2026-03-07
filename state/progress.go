@@ -1,0 +1,233 @@
+package state
+
+import (
+	"fmt"
+	"os"
+	"slices"
+
+	"github.com/voocel/ainovel-cli/domain"
+)
+
+// LoadProgress 读取 meta/progress.json。不存在时返回 nil。
+func (s *Store) LoadProgress() (*domain.Progress, error) {
+	var p domain.Progress
+	if err := s.readJSON("meta/progress.json", &p); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SaveProgress 保存进度到 meta/progress.json。
+func (s *Store) SaveProgress(p *domain.Progress) error {
+	return s.writeJSON("meta/progress.json", p)
+}
+
+// InitProgress 创建初始进度。
+func (s *Store) InitProgress(novelName string, totalChapters int) error {
+	return s.SaveProgress(&domain.Progress{
+		NovelName:     novelName,
+		Phase:         domain.PhaseInit,
+		TotalChapters: totalChapters,
+	})
+}
+
+// UpdatePhase 更新创作阶段。
+func (s *Store) UpdatePhase(phase domain.Phase) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		p = &domain.Progress{}
+	}
+	p.Phase = phase
+	return s.SaveProgress(p)
+}
+
+// MarkChapterComplete 标记章节完成，原子性更新进度。
+// 支持重写场景：如果章节已完成，先减去旧字数再加新字数。
+func (s *Store) MarkChapterComplete(chapter, wordCount int) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("progress not initialized, call InitProgress first")
+	}
+	if p.ChapterWordCounts == nil {
+		p.ChapterWordCounts = make(map[int]int)
+	}
+	// 重写场景：减去旧字数
+	if oldWC, ok := p.ChapterWordCounts[chapter]; ok {
+		p.TotalWordCount -= oldWC
+	}
+	p.ChapterWordCounts[chapter] = wordCount
+	p.TotalWordCount += wordCount
+	if !slices.Contains(p.CompletedChapters, chapter) {
+		p.CompletedChapters = append(p.CompletedChapters, chapter)
+	}
+	// 仅在正常推进时更新 CurrentChapter，重写旧章节不回退指针
+	if chapter+1 > p.CurrentChapter {
+		p.CurrentChapter = chapter + 1
+	}
+	p.InProgressChapter = 0
+	p.CompletedScenes = nil
+	p.Phase = domain.PhaseWriting
+	return s.SaveProgress(p)
+}
+
+// MarkComplete 标记全书创作完成。
+func (s *Store) MarkComplete() error {
+	return s.UpdatePhase(domain.PhaseComplete)
+}
+
+// SaveLastCommit 保存最近一次 commit 结果到 meta/last_commit.json。
+// 用于宿主程序读取结构化信号。
+func (s *Store) SaveLastCommit(result domain.CommitResult) error {
+	return s.writeJSON("meta/last_commit.json", result)
+}
+
+// LoadLastCommit 读取最近一次 commit 结果。
+func (s *Store) LoadLastCommit() (*domain.CommitResult, error) {
+	var r domain.CommitResult
+	if err := s.readJSON("meta/last_commit.json", &r); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
+// MarkSceneComplete 标记场景完成，用于场景级 checkpoint。
+// 切换到不同章节时自动清空旧的 CompletedScenes。
+func (s *Store) MarkSceneComplete(chapter, scene int) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("progress not initialized, call InitProgress first")
+	}
+	// 章节切换：清空旧场景列表
+	if p.InProgressChapter != chapter {
+		p.CompletedScenes = nil
+	}
+	p.InProgressChapter = chapter
+	if !slices.Contains(p.CompletedScenes, scene) {
+		p.CompletedScenes = append(p.CompletedScenes, scene)
+	}
+	return s.SaveProgress(p)
+}
+
+// ClearInProgress 清除场景级进度状态（章节提交后调用）。
+func (s *Store) ClearInProgress() error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.InProgressChapter = 0
+	p.CompletedScenes = nil
+	return s.SaveProgress(p)
+}
+
+// ClearLastCommit 清除 commit 信号文件，防止重复消费。
+func (s *Store) ClearLastCommit() error {
+	return s.removeFile("meta/last_commit.json")
+}
+
+// SetFlow 更新当前流程状态。
+func (s *Store) SetFlow(flow domain.FlowState) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.Flow = flow
+	return s.SaveProgress(p)
+}
+
+// SetPendingRewrites 设置待重写章节队列和原因。
+func (s *Store) SetPendingRewrites(chapters []int, reason string) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.PendingRewrites = chapters
+	p.RewriteReason = reason
+	return s.SaveProgress(p)
+}
+
+// CompleteRewrite 从待重写队列中移除已完成的章节。
+// 队列清空时自动将 Flow 重置为 writing 并清除 RewriteReason。
+func (s *Store) CompleteRewrite(chapter int) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	var remaining []int
+	for _, ch := range p.PendingRewrites {
+		if ch != chapter {
+			remaining = append(remaining, ch)
+		}
+	}
+	p.PendingRewrites = remaining
+	if len(remaining) == 0 {
+		p.Flow = domain.FlowWriting
+		p.RewriteReason = ""
+	}
+	return s.SaveProgress(p)
+}
+
+// ClearPendingRewrites 强制清空重写队列。
+func (s *Store) ClearPendingRewrites() error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.PendingRewrites = nil
+	p.RewriteReason = ""
+	p.Flow = domain.FlowWriting
+	return s.SaveProgress(p)
+}
+
+// ValidateChapterCommit 校验当前章节是否允许提交。
+// 在重写/打磨流程中，只允许提交待处理队列中的章节。
+func (s *Store) ValidateChapterCommit(chapter int) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	if p.Flow != domain.FlowRewriting && p.Flow != domain.FlowPolishing {
+		return nil
+	}
+	if slices.Contains(p.PendingRewrites, chapter) {
+		return nil
+	}
+
+	verb := "重写"
+	if p.Flow == domain.FlowPolishing {
+		verb = "打磨"
+	}
+	return fmt.Errorf("第 %d 章不在待%s队列中，当前队列：%v", chapter, verb, p.PendingRewrites)
+}
