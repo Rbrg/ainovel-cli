@@ -46,15 +46,19 @@ func main() {
 }
 
 func buildConfig(style string) app.Config {
-	provider := envOr("LLM_PROVIDER", "openai")
+	provider := envOr("LLM_PROVIDER", "openrouter")
 	apiKey := os.Getenv("Z_OPENAI_API_KEY")
 	baseURL := os.Getenv("Z_OPENAI_BASE_URL")
-	if provider == "anthropic" {
+	switch provider {
+	case "anthropic":
 		apiKey = envOr("ANTHROPIC_API_KEY", apiKey)
 		baseURL = envOr("ANTHROPIC_BASE_URL", baseURL)
-	} else if provider == "gemini" {
+	case "gemini":
 		apiKey = envOr("GEMINI_API_KEY", apiKey)
 		baseURL = envOr("GEMINI_BASE_URL", baseURL)
+	case "openrouter":
+		apiKey = envOr("OPENROUTER_API_KEY", apiKey)
+		baseURL = envOr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 	}
 
 	cfg := app.Config{
@@ -62,7 +66,7 @@ func buildConfig(style string) app.Config {
 		Provider:  provider,
 		APIKey:    apiKey,
 		BaseURL:   baseURL,
-		ModelName: envOr("MODEL_NAME", ""),
+		ModelName: "stepfun/step-3.5-flash:free",
 		Style:     style,
 	}
 	return cfg

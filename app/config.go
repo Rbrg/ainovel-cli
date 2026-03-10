@@ -39,9 +39,9 @@ func (c *Config) ValidateBase() error {
 		return fmt.Errorf("api key is required (set OPENAI_API_KEY or ANTHROPIC_API_KEY)")
 	}
 	switch c.Provider {
-	case "openai", "anthropic", "gemini":
+	case "openai", "anthropic", "gemini", "openrouter":
 	default:
-		return fmt.Errorf("unsupported provider %q (use openai/anthropic/gemini)", c.Provider)
+		return fmt.Errorf("unsupported provider %q (use openai/anthropic/gemini/openrouter)", c.Provider)
 	}
 	return nil
 }

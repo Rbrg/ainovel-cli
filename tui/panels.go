@@ -170,13 +170,30 @@ func renderEventContent(events []app.UIEvent, width int) string {
 }
 
 // renderEventFlowViewport 用 viewport 包装渲染事件流面板。
-func renderEventFlowViewport(vp viewport.Model, width, height int) string {
+func renderEventFlowViewport(vp viewport.Model, width, height int, focused bool) string {
+	// 标题栏
+	titleColor := colorDim
+	if focused {
+		titleColor = colorAccent
+	}
+	title := lipgloss.NewStyle().Foreground(titleColor).Render("✦ 事件流")
+	lineW := width - lipgloss.Width(title) - 4
+	if lineW < 0 {
+		lineW = 0
+	}
+	separator := lipgloss.NewStyle().Foreground(colorDim).Render(strings.Repeat("─", lineW))
+	header := " " + title + " " + separator
+
+	vpH := height - 1
+	if vpH < 1 {
+		vpH = 1
+	}
 	style := lipgloss.NewStyle().
 		Width(width).
-		Height(height).
+		Height(vpH).
 		Padding(0, 1)
 
-	return style.Render(vp.View())
+	return header + "\n" + style.Render(vp.View())
 }
 
 // renderStreamPanel 渲染流式输出面板（中间列下半部分）。

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -41,6 +43,11 @@ func Run(cfg Config, refs tools.References, prompts Prompts, styles map[string]s
 	store := state.NewStore(cfg.OutputDir)
 	if err := store.Init(); err != nil {
 		return fmt.Errorf("init store: %w", err)
+	}
+
+	// 1.5 日志写入文件（CLI 模式同时输出到 stderr 和日志文件）
+	if cleanup := setupFileLogger(store.Dir()); cleanup != nil {
+		defer cleanup()
 	}
 
 	// 2. 创建模型
@@ -505,6 +512,23 @@ func finalizeSteerIfIdle(store *state.Store) {
 	clearHandledSteer(store)
 }
 
+// setupFileLogger 设置 CLI 模式日志，同时输出到 stderr 和日志文件。
+func setupFileLogger(outputDir string) func() {
+	logPath := filepath.Join(outputDir, "meta", "cli.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return nil
+	}
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	return func() {
+		log.SetOutput(os.Stderr)
+		_ = f.Close()
+	}
+}
+
 // createModel 根据 provider 创建对应的 LLM 模型。
 func createModel(cfg Config) (agentcore.ChatModel, error) {
 	var baseURL []string
@@ -516,7 +540,7 @@ func createModel(cfg Config) (agentcore.ChatModel, error) {
 		return llm.NewAnthropicModel(cfg.ModelName, cfg.APIKey, baseURL...)
 	case "gemini":
 		return llm.NewGeminiModel(cfg.ModelName, cfg.APIKey, baseURL...)
-	default:
+	default: // openai, openrouter 及其他 OpenAI 兼容服务
 		return llm.NewOpenAIModel(cfg.ModelName, cfg.APIKey, baseURL...)
 	}
 }
