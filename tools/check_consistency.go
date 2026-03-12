@@ -71,6 +71,20 @@ func (t *CheckConsistencyTool) Execute(_ context.Context, args json.RawMessage) 
 	}
 	if chars, _ := t.store.LoadCharacters(); len(chars) > 0 {
 		result["characters"] = chars
+		// 构建别名映射表，供 LLM 识别角色的不同称呼
+		aliasMap := make(map[string]string)
+		for _, c := range chars {
+			for _, alias := range c.Aliases {
+				aliasMap[alias] = c.Name
+			}
+		}
+		if len(aliasMap) > 0 {
+			result["alias_map"] = aliasMap
+		}
+	}
+	// 加载最近状态变化，供对照当前章节的状态描述
+	if changes, _ := t.store.LoadRecentStateChanges(a.Chapter, 5); len(changes) > 0 {
+		result["recent_state_changes"] = changes
 	}
 
 	if rules, _ := t.store.LoadWorldRules(); len(rules) > 0 {
@@ -95,12 +109,17 @@ func (t *CheckConsistencyTool) Execute(_ context.Context, args json.RawMessage) 
 	result["instruction"] = `请逐项对照以上状态数据检查本章内容，返回 JSON 数组格式的冲突项：
 [
   {
-    "type": "timeline|foreshadow|relationship|character|world_rules",
-    "severity": "error|warning",
+    "type": "timeline|foreshadow|relationship|character|world_rules|state",
+    "severity": "critical|error|warning",
     "description": "具体冲突描述",
     "suggestion": "建议修正范围和方式"
   }
 ]
+
+severity 分级：
+- critical：严重逻辑硬伤，必须修复（如角色已死但再次出场、违反世界规则核心边界）
+- error：明显矛盾，应当修复（如时间线冲突、角色行为与人设严重不符）
+- warning：轻微瑕疵，可后续处理（如细节不够精确、可改进但不影响阅读）
 
 检查清单：
 1. 时间线：本章事件时间是否与已有 timeline 矛盾
@@ -108,6 +127,8 @@ func (t *CheckConsistencyTool) Execute(_ context.Context, args json.RawMessage) 
 3. 人物关系：角色互动是否与 relationships 当前状态矛盾
 4. 角色一致性：行为是否符合 characters 中的性格和弧线
 5. 世界规则：逐条检查 world_rules_boundaries 中的边界约束，本章内容是否违反任何一条
+6. 别名一致性：如果有 alias_map，检查同一角色的不同称呼是否指向正确的人
+7. 状态连续性：如果有 recent_state_changes，检查本章对角色状态的描述是否与最近的状态变化记录一致
 
 如果没有发现冲突，返回空数组 []。不要返回其他格式。`
 

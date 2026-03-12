@@ -49,11 +49,12 @@
 ### 6. 提交章节
 调用 commit_chapter，提供：
 - summary: 本章内容摘要（200字以内）
-- characters: 本章出场角色名列表
+- characters: 本章出场角色名列表（使用正式名，不用别名）
 - key_events: 本章关键事件列表
 - timeline_events: 本章发生的时间线事件
 - foreshadow_updates: 伏笔操作（plant 埋设 / advance 推进 / resolve 回收）
 - relationship_changes: 人物关系变化
+- state_changes: 角色/实体状态变化（修为提升、位置转移、状态变化等），每条包含 entity/field/old_value/new_value/reason
 
 ## 重写模式
 
@@ -79,3 +80,6 @@
 - 保持与前几章的连贯性
 - 字数不够时用具体细节扩展，不用水话填充
 - 注意时间线连贯和伏笔管理
+- 角色在正文中可以使用别名/称号/绰号，但 commit 时 characters 列表使用正式名
+- 如果上下文中有 recent_state_changes，注意本章对角色状态的描述必须与记录一致（如修为、位置、伤势等）
+- 本章中角色发生任何状态变化（修为提升、位置转移、受伤/恢复、获得/失去物品等），必须在 commit 的 state_changes 中上报

@@ -133,6 +133,10 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 		if relationships, err := t.store.LoadRelationships(); err == nil && len(relationships) > 0 {
 			result["relationship_state"] = relationships
 		}
+		// 状态变化：最近 5 章的角色/实体状态变化
+		if changes, err := t.store.LoadRecentStateChanges(a.Chapter, 5); err == nil && len(changes) > 0 {
+			result["recent_state_changes"] = changes
+		}
 
 		// Layered 模式：注入当前卷弧位置 + 弧目标/卷主题
 		if profile.Layered && progress != nil {
@@ -196,7 +200,111 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 		result["references"] = t.architectReferences()
 	}
 
+	result["_loading_summary"] = buildLoadingSummary(result, a.Chapter)
 	return json.Marshal(result)
+}
+
+// buildLoadingSummary 从已组装的 result 中统计各项数据量，生成一行可读摘要。
+func buildLoadingSummary(result map[string]any, chapter int) string {
+	var parts []string
+
+	if chapter > 0 {
+		parts = append(parts, fmt.Sprintf("ch=%d", chapter))
+	} else {
+		parts = append(parts, "architect")
+	}
+
+	// 卷弧位置
+	if pos, ok := result["position"].(map[string]any); ok {
+		parts = append(parts, fmt.Sprintf("V%dA%d", pos["volume"], pos["arc"]))
+	}
+
+	var items []string
+	countSlice := func(key string) int {
+		if v, ok := result[key]; ok {
+			if s, ok := v.([]domain.Character); ok {
+				return len(s)
+			}
+			// 通用 slice 反射
+			return sliceLen(v)
+		}
+		return 0
+	}
+
+	// 角色
+	if n := countSlice("character_snapshots"); n > 0 {
+		items = append(items, fmt.Sprintf("角色:%d(快照)", n))
+	} else if n := countSlice("characters"); n > 0 {
+		items = append(items, fmt.Sprintf("角色:%d", n))
+	}
+
+	// 分层摘要
+	if n := countSlice("volume_summaries"); n > 0 {
+		items = append(items, fmt.Sprintf("卷摘要:%d", n))
+	}
+	if n := countSlice("arc_summaries"); n > 0 {
+		items = append(items, fmt.Sprintf("弧摘要:%d", n))
+	}
+	if n := countSlice("recent_summaries"); n > 0 {
+		items = append(items, fmt.Sprintf("章摘要:%d", n))
+	}
+
+	// 分层大纲
+	if n := countSlice("layered_outline"); n > 0 {
+		items = append(items, fmt.Sprintf("分层大纲:%d卷", n))
+	}
+
+	// 状态数据
+	if n := countSlice("timeline"); n > 0 {
+		items = append(items, fmt.Sprintf("时间线:%d", n))
+	}
+	if n := countSlice("foreshadow_ledger"); n > 0 {
+		items = append(items, fmt.Sprintf("伏笔:%d", n))
+	}
+	if n := countSlice("relationship_state"); n > 0 {
+		items = append(items, fmt.Sprintf("关系:%d", n))
+	}
+	if n := countSlice("recent_state_changes"); n > 0 {
+		items = append(items, fmt.Sprintf("状态变化:%d", n))
+	}
+
+	// 参考资料
+	if refs, ok := result["references"].(map[string]string); ok && len(refs) > 0 {
+		items = append(items, fmt.Sprintf("参考:%d项", len(refs)))
+	}
+
+	if len(items) > 0 {
+		parts = append(parts, strings.Join(items, " "))
+	}
+	return strings.Join(parts, " | ")
+}
+
+// sliceLen 对 any 类型尝试取 slice 长度。
+func sliceLen(v any) int {
+	switch s := v.(type) {
+	case []domain.ChapterSummary:
+		return len(s)
+	case []domain.ArcSummary:
+		return len(s)
+	case []domain.VolumeSummary:
+		return len(s)
+	case []domain.CharacterSnapshot:
+		return len(s)
+	case []domain.TimelineEvent:
+		return len(s)
+	case []domain.ForeshadowEntry:
+		return len(s)
+	case []domain.RelationshipEntry:
+		return len(s)
+	case []domain.StateChange:
+		return len(s)
+	case []domain.VolumeOutline:
+		return len(s)
+	case []domain.Character:
+		return len(s)
+	default:
+		return 0
+	}
 }
 
 // loadFilteredCharacters 按 Tier 和场景出场过滤角色。
@@ -219,7 +327,7 @@ func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int)
 	for _, c := range chars {
 		switch c.Tier {
 		case "secondary", "decorative":
-			if strings.Contains(sceneText, c.Name) {
+			if matchCharacter(sceneText, c) {
 				filtered = append(filtered, c)
 			}
 		default: // core, important, 或未设置
@@ -227,6 +335,19 @@ func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int)
 		}
 	}
 	result["characters"] = filtered
+}
+
+// matchCharacter 检查场景文本中是否包含角色的正式名或任一别名。
+func matchCharacter(text string, c domain.Character) bool {
+	if strings.Contains(text, c.Name) {
+		return true
+	}
+	for _, alias := range c.Aliases {
+		if strings.Contains(text, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 // loadLayeredSummaries 分层摘要加载：卷摘要 + 当前卷弧摘要 + 弧内章摘要。

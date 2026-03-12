@@ -27,14 +27,21 @@ func (t *SaveReviewTool) Label() string { return "保存审阅" }
 
 func (t *SaveReviewTool) Schema() map[string]any {
 	issueSchema := schema.Object(
-		schema.Property("type", schema.Enum("问题类型", "timeline", "foreshadow", "relationship", "character", "pacing", "logic")).Required(),
-		schema.Property("severity", schema.Enum("严重程度", "error", "warning")).Required(),
+		schema.Property("type", schema.Enum("问题维度", "consistency", "character", "pacing", "continuity", "foreshadow", "hook")).Required(),
+		schema.Property("severity", schema.Enum("严重程度", "critical", "error", "warning")).Required(),
 		schema.Property("description", schema.String("问题描述")).Required(),
 		schema.Property("suggestion", schema.String("修改建议")),
 	)
+	dimensionSchema := schema.Object(
+		schema.Property("dimension", schema.Enum("维度", "consistency", "character", "pacing", "continuity", "foreshadow", "hook")).Required(),
+		schema.Property("score", schema.Int("评分（0-100）")).Required(),
+		schema.Property("verdict", schema.Enum("维度结论", "pass", "warning", "fail")).Required(),
+		schema.Property("comment", schema.String("该维度的简要结论")),
+	)
 	return schema.Object(
 		schema.Property("chapter", schema.Int("审阅的章节号（全局审阅填最新章节号）")).Required(),
-		schema.Property("scope", schema.Enum("审阅范围", "chapter", "global")).Required(),
+		schema.Property("scope", schema.Enum("审阅范围", "chapter", "global", "arc")).Required(),
+		schema.Property("dimensions", schema.Array("分维度评分（六个维度各一条）", dimensionSchema)).Required(),
 		schema.Property("issues", schema.Array("发现的问题", issueSchema)).Required(),
 		schema.Property("verdict", schema.Enum("审阅结论", "accept", "polish", "rewrite")).Required(),
 		schema.Property("summary", schema.String("审阅总结")).Required(),

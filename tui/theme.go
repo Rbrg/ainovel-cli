@@ -10,6 +10,7 @@ var (
 	colorSuccess = lipgloss.Color("#2ecc71") // 冷绿
 	colorError   = lipgloss.Color("#e74c3c") // 朱红
 	colorReview  = lipgloss.Color("#e67e22") // 橙色
+	colorContext = lipgloss.Color("#9b59b6") // 紫色
 )
 
 // 状态标签颜色映射
@@ -24,12 +25,13 @@ var statusColors = map[string]lipgloss.Color{
 
 // 事件分类颜色映射
 var categoryColors = map[string]lipgloss.Color{
-	"TOOL":   colorText,
-	"SYSTEM": colorAccent,
-	"REVIEW": colorReview,
-	"CHECK":  colorSuccess,
-	"ERROR":  colorError,
-	"AGENT":  colorDim,
+	"TOOL":    colorText,
+	"SYSTEM":  colorAccent,
+	"REVIEW":  colorReview,
+	"CHECK":   colorSuccess,
+	"ERROR":   colorError,
+	"AGENT":   colorDim,
+	"CONTEXT": colorContext,
 }
 
 // 基础样式

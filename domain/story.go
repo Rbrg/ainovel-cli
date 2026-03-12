@@ -18,6 +18,7 @@ type OutlineEntry struct {
 // Character 角色档案。
 type Character struct {
 	Name        string   `json:"name"`
+	Aliases     []string `json:"aliases,omitempty"` // 别名/称号/绰号（如"废物少年"、"炎哥"）
 	Role        string   `json:"role"`
 	Description string   `json:"description"`
 	Arc         string   `json:"arc"`

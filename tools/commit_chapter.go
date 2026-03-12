@@ -43,6 +43,13 @@ func (t *CommitChapterTool) Schema() map[string]any {
 		schema.Property("character_b", schema.String("角色 B")).Required(),
 		schema.Property("relation", schema.String("当前关系描述")).Required(),
 	)
+	stateChangeSchema := schema.Object(
+		schema.Property("entity", schema.String("角色名或实体名")).Required(),
+		schema.Property("field", schema.String("变化属性：realm/location/status/power/relation 等")).Required(),
+		schema.Property("old_value", schema.String("变化前的值（首次出现可空）")),
+		schema.Property("new_value", schema.String("变化后的值")).Required(),
+		schema.Property("reason", schema.String("变化原因")),
+	)
 	return schema.Object(
 		schema.Property("chapter", schema.Int("章节号")).Required(),
 		schema.Property("summary", schema.String("本章内容摘要（200字以内）")).Required(),
@@ -51,6 +58,7 @@ func (t *CommitChapterTool) Schema() map[string]any {
 		schema.Property("timeline_events", schema.Array("本章时间线事件", timelineSchema)),
 		schema.Property("foreshadow_updates", schema.Array("伏笔操作", foreshadowSchema)),
 		schema.Property("relationship_changes", schema.Array("关系变化", relationshipSchema)),
+		schema.Property("state_changes", schema.Array("角色/实体状态变化（修为提升、位置转移、状态变化等）", stateChangeSchema)),
 		schema.Property("hook_type", schema.Enum("章末钩子类型", "crisis", "mystery", "desire", "emotion", "choice")),
 		schema.Property("dominant_strand", schema.Enum("本章主导叙事线", "quest", "fire", "constellation")),
 	)
@@ -65,6 +73,7 @@ func (t *CommitChapterTool) Execute(_ context.Context, args json.RawMessage) (js
 		TimelineEvents      []domain.TimelineEvent     `json:"timeline_events"`
 		ForeshadowUpdates   []domain.ForeshadowUpdate  `json:"foreshadow_updates"`
 		RelationshipChanges []domain.RelationshipEntry `json:"relationship_changes"`
+		StateChanges        []domain.StateChange       `json:"state_changes"`
 		HookType            string                     `json:"hook_type"`
 		DominantStrand      string                     `json:"dominant_strand"`
 	}
@@ -123,6 +132,14 @@ func (t *CommitChapterTool) Execute(_ context.Context, args json.RawMessage) (js
 		}
 		if err := t.store.UpdateRelationships(a.RelationshipChanges); err != nil {
 			return nil, fmt.Errorf("update relationships: %w", err)
+		}
+	}
+	if len(a.StateChanges) > 0 {
+		for i := range a.StateChanges {
+			a.StateChanges[i].Chapter = a.Chapter
+		}
+		if err := t.store.AppendStateChanges(a.StateChanges); err != nil {
+			return nil, fmt.Errorf("append state changes: %w", err)
 		}
 	}
 

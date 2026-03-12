@@ -34,18 +34,49 @@ type RelationshipEntry struct {
 
 // ConsistencyIssue 一致性问题。
 type ConsistencyIssue struct {
-	Type        string `json:"type"`     // timeline / foreshadow / relationship / character
-	Severity    string `json:"severity"` // error / warning
+	Type        string `json:"type"`     // consistency / character / pacing / continuity / foreshadow / hook
+	Severity    string `json:"severity"` // critical / error / warning
 	Description string `json:"description"`
 	Suggestion  string `json:"suggestion,omitempty"`
+}
+
+// DimensionScore 单维度评审评分。
+type DimensionScore struct {
+	Dimension string `json:"dimension"`          // consistency / character / pacing / continuity / foreshadow / hook
+	Score     int    `json:"score"`              // 0-100
+	Verdict   string `json:"verdict"`            // pass / warning / fail
+	Comment   string `json:"comment,omitempty"`  // 该维度的简要结论
 }
 
 // ReviewEntry Editor 的审阅条目。
 type ReviewEntry struct {
 	Chapter          int                `json:"chapter"`
-	Scope            string             `json:"scope"` // chapter / global
+	Scope            string             `json:"scope"` // chapter / global / arc
 	Issues           []ConsistencyIssue `json:"issues"`
-	Verdict          string             `json:"verdict"` // accept / polish / rewrite
+	Dimensions       []DimensionScore   `json:"dimensions,omitempty"` // 分维度评分
+	Verdict          string             `json:"verdict"`              // accept / polish / rewrite
 	Summary          string             `json:"summary"`
 	AffectedChapters []int              `json:"affected_chapters,omitempty"` // 需要重写/打磨的章节号
+}
+
+// CriticalCount 返回 critical 级别问题数量。
+func (r *ReviewEntry) CriticalCount() int {
+	n := 0
+	for _, issue := range r.Issues {
+		if issue.Severity == "critical" {
+			n++
+		}
+	}
+	return n
+}
+
+// ErrorCount 返回 error 级别问题数量。
+func (r *ReviewEntry) ErrorCount() int {
+	n := 0
+	for _, issue := range r.Issues {
+		if issue.Severity == "error" {
+			n++
+		}
+	}
+	return n
 }

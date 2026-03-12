@@ -174,6 +174,12 @@ func registerSubscription(coordinator *agentcore.Agent, store *state.Store, prov
 			if emit != nil {
 				emit(UIEvent{Time: time.Now(), Category: "TOOL", Summary: ev.Tool + ".done", Level: "info"})
 			}
+			// 上下文加载可视化：提取 novel_context 的加载摘要
+			if ev.Tool == "novel_context" && emit != nil {
+				if summary := extractLoadingSummary(ev.Result); summary != "" {
+					emit(UIEvent{Time: time.Now(), Category: "CONTEXT", Summary: summary, Level: "info"})
+				}
+			}
 
 			if ev.Tool == "subagent" {
 				handleSubAgentDone(coordinator, store, emit)
@@ -448,7 +454,15 @@ func handleEditorDone(coordinator *agentcore.Agent, store *state.Store, emit emi
 		log.Printf("[host] 清除审阅信号失败: %v", err)
 	}
 
-	log.Printf("[host] 审阅信号：verdict=%s，%d 个问题", review.Verdict, len(review.Issues))
+	criticalN := review.CriticalCount()
+	log.Printf("[host] 审阅信号：verdict=%s，%d 个问题（critical=%d，error=%d）",
+		review.Verdict, len(review.Issues), criticalN, review.ErrorCount())
+
+	// 宿主兜底：如果 LLM 给了 accept 但存在 critical 问题，强制升级为 rewrite
+	if review.Verdict == "accept" && criticalN > 0 {
+		log.Printf("[host] 检测到 %d 个 critical 问题但 verdict=accept，强制升级为 rewrite", criticalN)
+		review.Verdict = "rewrite"
+	}
 
 	chaptersInfo := ""
 	if len(review.AffectedChapters) > 0 {
@@ -553,6 +567,20 @@ func parseProgressSummary(ev agentcore.Event) string {
 		return fmt.Sprintf("%s turn %d", data.Agent, data.Turn)
 	}
 	return truncateLog(string(ev.Result), 60)
+}
+
+// extractLoadingSummary 从 novel_context 的返回 JSON 中提取 _loading_summary 字段。
+func extractLoadingSummary(result json.RawMessage) string {
+	if len(result) == 0 {
+		return ""
+	}
+	var data struct {
+		Summary string `json:"_loading_summary"`
+	}
+	if err := json.Unmarshal(result, &data); err != nil {
+		return ""
+	}
+	return data.Summary
 }
 
 func truncateLog(s string, maxRunes int) string {
