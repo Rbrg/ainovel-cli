@@ -38,6 +38,10 @@ type Progress struct {
 	RewriteReason   string   `json:"rewrite_reason,omitempty"`   // 重写原因
 	StrandHistory   []string `json:"strand_history,omitempty"`   // 按章节顺序记录 dominant_strand
 	HookHistory     []string `json:"hook_history,omitempty"`     // 按章节顺序记录 hook_type
+	// 长篇分层追踪（仅长篇模式使用，短篇/中篇为零值）
+	CurrentVolume int  `json:"current_volume,omitempty"`
+	CurrentArc    int  `json:"current_arc,omitempty"`
+	Layered       bool `json:"layered,omitempty"`
 }
 
 // IsResumable 判断是否可以从断点恢复。
@@ -64,6 +68,7 @@ type ContextProfile struct {
 	SummaryWindow  int  // 加载最近 N 章摘要
 	TimelineWindow int  // 加载最近 N 章时间线
 	FullContext    bool // true = 忽略窗口，全量加载
+	Layered        bool // true = 启用分层摘要加载（卷摘要+弧摘要+章摘要）
 }
 
 // NewContextProfile 根据总章节数计算上下文策略。
@@ -74,7 +79,7 @@ func NewContextProfile(totalChapters int) ContextProfile {
 	case totalChapters <= 50:
 		return ContextProfile{SummaryWindow: 5, TimelineWindow: 10}
 	default:
-		return ContextProfile{SummaryWindow: 3, TimelineWindow: 8}
+		return ContextProfile{SummaryWindow: 3, TimelineWindow: 8, Layered: true}
 	}
 }
 

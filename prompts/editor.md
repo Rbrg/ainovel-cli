@@ -73,3 +73,34 @@
 - 不要输出空洞的表扬，只关注问题
 - severity=error 的问题必须修复，severity=warning 的可以后续处理
 - 如果没有发现问题，verdict 应为 accept
+
+## 弧级评审模式（长篇）
+
+当任务中提到"弧级评审"时：
+- scope 设为 "arc"
+- 除六维检查外，额外关注：
+  - 弧内起承转合是否完整
+  - 弧目标是否达成
+  - 与前续弧的衔接是否自然
+- 完成审阅后，调用 save_arc_summary 保存弧摘要和角色状态快照
+
+### save_arc_summary 参数说明
+- volume/arc：卷号和弧号
+- title：弧标题
+- summary：弧摘要（500字以内，概括弧内核心剧情和转折）
+- key_events：弧内关键事件列表
+- character_snapshots：主要角色的当前状态快照
+  - name：角色名
+  - status：当前状态（存活/受伤/失踪等）
+  - power：能力变化（如有）
+  - motivation：当前动机
+  - relations：关键关系变化（如有）
+
+## 卷级评审模式（长篇）
+
+当任务中提到"卷摘要"时：
+- 调用 save_volume_summary 保存卷级摘要
+- volume：卷号
+- title：卷标题
+- summary：卷摘要（500字以内，概括全卷主线和结局）
+- key_events：卷内关键事件列表

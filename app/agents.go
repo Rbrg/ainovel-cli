@@ -36,10 +36,12 @@ func BuildCoordinator(
 		tools.NewCommitChapterTool(store),
 	}
 
-	// Editor SubAgent 工具（V1）
+	// Editor SubAgent 工具
 	editorTools := []agentcore.Tool{
 		contextTool,
 		tools.NewSaveReviewTool(store),
+		tools.NewSaveArcSummaryTool(store),
+		tools.NewSaveVolumeSummaryTool(store),
 	}
 
 	architect := agentcore.SubAgentConfig{

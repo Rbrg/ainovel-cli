@@ -56,6 +56,158 @@ func (s *Store) GetChapterOutline(chapter int) (*domain.OutlineEntry, error) {
 	return nil, fmt.Errorf("chapter %d not found in outline", chapter)
 }
 
+// SaveLayeredOutline 保存分层大纲（长篇模式）。
+// 同时保存 layered_outline.json（机器读）和 layered_outline.md（人读）。
+func (s *Store) SaveLayeredOutline(volumes []domain.VolumeOutline) error {
+	if err := s.writeJSON("layered_outline.json", volumes); err != nil {
+		return err
+	}
+	return s.writeMarkdown("layered_outline.md", renderLayeredOutline(volumes))
+}
+
+// LoadLayeredOutline 读取分层大纲。
+func (s *Store) LoadLayeredOutline() ([]domain.VolumeOutline, error) {
+	var volumes []domain.VolumeOutline
+	if err := s.readJSON("layered_outline.json", &volumes); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return volumes, nil
+}
+
+// GetChapterFromLayered 从分层大纲中按全局章节号查找。
+func (s *Store) GetChapterFromLayered(chapter int) (*domain.OutlineEntry, error) {
+	volumes, err := s.LoadLayeredOutline()
+	if err != nil {
+		return nil, err
+	}
+	ch := 1
+	for _, v := range volumes {
+		for _, a := range v.Arcs {
+			for i := range a.Chapters {
+				if ch == chapter {
+					e := a.Chapters[i]
+					e.Chapter = ch
+					return &e, nil
+				}
+				ch++
+			}
+		}
+	}
+	return nil, fmt.Errorf("chapter %d not found in layered outline", chapter)
+}
+
+// LocateChapter 根据全局章节号定位所在的卷和弧。
+func (s *Store) LocateChapter(chapter int) (volume, arc int, err error) {
+	volumes, err := s.LoadLayeredOutline()
+	if err != nil {
+		return 0, 0, err
+	}
+	ch := 1
+	for _, v := range volumes {
+		for _, a := range v.Arcs {
+			for range a.Chapters {
+				if ch == chapter {
+					return v.Index, a.Index, nil
+				}
+				ch++
+			}
+		}
+	}
+	return 0, 0, fmt.Errorf("chapter %d not found in layered outline", chapter)
+}
+
+// ArcBoundary 弧边界信息。
+type ArcBoundary struct {
+	IsArcEnd    bool // 是否为弧内最后一章
+	IsVolumeEnd bool // 是否同时为卷内最后一章
+	Volume      int  // 当前章所在卷
+	Arc         int  // 当前章所在弧
+	NextVolume  int  // 下一章所在卷（0 = 全书结束）
+	NextArc     int  // 下一章所在弧（0 = 全书结束）
+}
+
+// CheckArcBoundary 检查某章是否为弧/卷的最后一章。
+// 非分层大纲或未找到章节时返回 nil。
+func (s *Store) CheckArcBoundary(chapter int) (*ArcBoundary, error) {
+	volumes, err := s.LoadLayeredOutline()
+	if err != nil || len(volumes) == 0 {
+		return nil, err
+	}
+
+	type chapterPos struct {
+		volume, arc, indexInArc, arcLen int
+		isLastArc                       bool
+	}
+
+	// 构建全局章节号 → 位置映射
+	ch := 1
+	var cur *chapterPos
+	var nextVol, nextArc int
+	for _, v := range volumes {
+		for ai, a := range v.Arcs {
+			for ci := range a.Chapters {
+				if ch == chapter {
+					cur = &chapterPos{
+						volume:    v.Index,
+						arc:       a.Index,
+						indexInArc: ci,
+						arcLen:    len(a.Chapters),
+						isLastArc: ai == len(v.Arcs)-1,
+					}
+				} else if cur != nil && nextVol == 0 {
+					// 紧跟 cur 的下一章
+					nextVol = v.Index
+					nextArc = a.Index
+				}
+				ch++
+			}
+		}
+	}
+	if cur == nil {
+		return nil, nil
+	}
+
+	b := &ArcBoundary{
+		Volume:     cur.volume,
+		Arc:        cur.arc,
+		NextVolume: nextVol,
+		NextArc:    nextArc,
+	}
+	if cur.indexInArc == cur.arcLen-1 {
+		b.IsArcEnd = true
+		if cur.isLastArc {
+			b.IsVolumeEnd = true
+		}
+	}
+	return b, nil
+}
+
+func renderLayeredOutline(volumes []domain.VolumeOutline) string {
+	var b strings.Builder
+	b.WriteString("# 分层大纲\n\n")
+	ch := 1
+	for _, v := range volumes {
+		fmt.Fprintf(&b, "## 第 %d 卷：%s\n\n", v.Index, v.Title)
+		fmt.Fprintf(&b, "**主题**：%s\n\n", v.Theme)
+		for _, a := range v.Arcs {
+			fmt.Fprintf(&b, "### 第 %d 弧：%s\n\n", a.Index, a.Title)
+			fmt.Fprintf(&b, "**目标**：%s\n\n", a.Goal)
+			for _, e := range a.Chapters {
+				fmt.Fprintf(&b, "#### 第 %d 章：%s\n\n", ch, e.Title)
+				fmt.Fprintf(&b, "**核心事件**：%s\n\n", e.CoreEvent)
+				if e.Hook != "" {
+					fmt.Fprintf(&b, "**钩子**：%s\n\n", e.Hook)
+				}
+				ch++
+			}
+		}
+	}
+	return b.String()
+}
+
 func renderOutline(entries []domain.OutlineEntry) string {
 	var b strings.Builder
 	b.WriteString("# 大纲\n\n")

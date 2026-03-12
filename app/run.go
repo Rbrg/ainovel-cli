@@ -338,6 +338,64 @@ func handleSubAgentDone(coordinator *agentcore.Agent, store *state.Store, emit e
 		return
 	}
 
+	// 确定性判断 1.5：长篇弧/卷边界处理
+	if progress != nil && progress.Layered && result.ArcEnd {
+		// 判断是否全书最后一弧
+		isBookEnd := progress.TotalChapters > 0 && result.NextChapter > progress.TotalChapters
+
+		if result.VolumeEnd {
+			log.Printf("[host] 第 %d 卷第 %d 弧结束（卷结束），注入弧级+卷级评审指令", result.Volume, result.Arc)
+			if err := store.SetFlow(domain.FlowReviewing); err != nil {
+				log.Printf("[host] 设置审阅流程失败: %v", err)
+			}
+			if emit != nil {
+				emit(UIEvent{Time: time.Now(), Category: "SYSTEM",
+					Summary: fmt.Sprintf("第 %d 卷第 %d 弧结束（卷结束），触发评审", result.Volume, result.Arc), Level: "warn"})
+			}
+
+			tail := "完成后继续写下一卷。"
+			if isBookEnd {
+				tail = "完成后总结全书并结束。不要再调用 writer。"
+			}
+			coordinator.FollowUp(agentcore.UserMsg(fmt.Sprintf(
+				"[系统] 第 %d 卷第 %d 弧结束（卷结束）。请依次：\n"+
+					"1. 调用 editor 进行弧级评审（scope=arc，最新章节为第 %d 章）\n"+
+					"2. 调用 editor 生成弧摘要和角色快照（save_arc_summary，volume=%d，arc=%d）\n"+
+					"3. 调用 editor 生成卷摘要（save_volume_summary，volume=%d）\n"+
+					"%s",
+				result.Volume, result.Arc, result.Chapter, result.Volume, result.Arc, result.Volume, tail)))
+		} else {
+			log.Printf("[host] 第 %d 卷第 %d 弧结束，注入弧级评审指令", result.Volume, result.Arc)
+			if err := store.SetFlow(domain.FlowReviewing); err != nil {
+				log.Printf("[host] 设置审阅流程失败: %v", err)
+			}
+			if emit != nil {
+				emit(UIEvent{Time: time.Now(), Category: "SYSTEM",
+					Summary: fmt.Sprintf("第 %d 卷第 %d 弧结束，触发弧级评审", result.Volume, result.Arc), Level: "warn"})
+			}
+			coordinator.FollowUp(agentcore.UserMsg(fmt.Sprintf(
+				"[系统] 第 %d 卷第 %d 弧结束。请依次：\n"+
+					"1. 调用 editor 进行弧级评审（scope=arc，最新章节为第 %d 章）\n"+
+					"2. 调用 editor 生成弧摘要和角色快照（save_arc_summary，volume=%d，arc=%d）\n"+
+					"完成后继续写下一弧的章节。",
+				result.Volume, result.Arc, result.Chapter, result.Volume, result.Arc)))
+		}
+
+		if isBookEnd {
+			log.Printf("[host] 全书最后一弧，评审完成后将结束")
+			if err := store.MarkComplete(); err != nil {
+				log.Printf("[host] 标记完成失败: %v", err)
+			}
+			if emit != nil {
+				emit(UIEvent{Time: time.Now(), Category: "SYSTEM",
+					Summary: fmt.Sprintf("全部 %d 章已完成，等待最终评审", progress.TotalChapters), Level: "success"})
+			}
+		}
+		clearHandledSteer(store)
+		saveCheckpoint(store, fmt.Sprintf("ch%02d-commit", result.Chapter))
+		return
+	}
+
 	// 确定性判断 1：全书完成（TotalChapters 由大纲自动设定）
 	totalChapters := 0
 	if progress != nil {

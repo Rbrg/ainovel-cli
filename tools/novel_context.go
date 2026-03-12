@@ -75,18 +75,31 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 	if a.Chapter > 0 {
 		// 根据总章节数计算上下文策略
 		profile := domain.NewContextProfile(0)
-		if progress, err := t.store.LoadProgress(); err == nil && progress != nil && progress.TotalChapters > 0 {
+		progress, _ := t.store.LoadProgress()
+		if progress != nil && progress.TotalChapters > 0 {
 			profile = domain.NewContextProfile(progress.TotalChapters)
 		}
+		// Layered 以 Progress 的显式标志为准，而非章节数推断
+		if progress == nil || !progress.Layered {
+			profile.Layered = false
+		}
 
-		// 角色按 Tier 过滤：core/important 始终返回，secondary/decorative 按出场匹配
-		t.loadFilteredCharacters(result, a.Chapter)
+		// 角色加载：Layered 模式优先用快照，回退到原始设定
+		if profile.Layered {
+			t.loadLayeredCharacters(result, a.Chapter)
+		} else {
+			t.loadFilteredCharacters(result, a.Chapter)
+		}
 
 		// Writer/Editor 模式：加载章节相关上下文
 		if entry, err := t.store.GetChapterOutline(a.Chapter); err == nil {
 			result["current_chapter_outline"] = entry
 		}
-		if profile.FullContext {
+
+		// 摘要加载：分层 vs 扁平
+		if profile.Layered {
+			t.loadLayeredSummaries(result, a.Chapter, profile.SummaryWindow)
+		} else if profile.FullContext {
 			if summaries, err := t.store.LoadAllSummaries(a.Chapter); err == nil && len(summaries) > 0 {
 				result["recent_summaries"] = summaries
 			}
@@ -96,7 +109,7 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 			}
 		}
 
-		// 状态数据按策略加载
+		// 时间线：Layered 用窗口，其他按策略
 		if profile.FullContext {
 			if timeline, err := t.store.LoadTimeline(); err == nil && len(timeline) > 0 {
 				result["timeline"] = timeline
@@ -121,8 +134,33 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 			result["relationship_state"] = relationships
 		}
 
-		// V2: 加载场景级恢复状态 + 节奏追踪
-		if progress, err := t.store.LoadProgress(); err == nil && progress != nil {
+		// Layered 模式：注入当前卷弧位置 + 弧目标/卷主题
+		if profile.Layered && progress != nil {
+			pos := map[string]any{
+				"volume": progress.CurrentVolume,
+				"arc":    progress.CurrentArc,
+			}
+			if volumes, err := t.store.LoadLayeredOutline(); err == nil {
+				for _, v := range volumes {
+					if v.Index == progress.CurrentVolume {
+						pos["volume_title"] = v.Title
+						pos["volume_theme"] = v.Theme
+						for _, arc := range v.Arcs {
+							if arc.Index == progress.CurrentArc {
+								pos["arc_title"] = arc.Title
+								pos["arc_goal"] = arc.Goal
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+			result["position"] = pos
+		}
+
+		// 加载场景级恢复状态 + 节奏追踪
+		if progress != nil {
 			checkpoint := map[string]any{
 				"in_progress_chapter": progress.InProgressChapter,
 				"completed_scenes":    progress.CompletedScenes,
@@ -135,17 +173,25 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 			}
 			result["checkpoint"] = checkpoint
 		}
-		// V2: 加载已有的章节规划（支持场景恢复跳过已完成场景）
+		// 加载已有的章节规划（支持场景恢复跳过已完成场景）
 		if plan, err := t.store.LoadChapterPlan(a.Chapter); err == nil && plan != nil {
 			result["chapter_plan"] = plan
 		}
 
-		// V3: 写作参考资料分阶段加载
+		// 写作参考资料分阶段加载
 		result["references"] = t.writerReferences(a.Chapter)
 	} else {
 		// Architect 模式：全量角色 + 模板
 		if chars, err := t.store.LoadCharacters(); err == nil && chars != nil {
 			result["characters"] = chars
+		}
+		// Architect 模式下也加载分层大纲（弧级规划需要看全貌）
+		if layered, err := t.store.LoadLayeredOutline(); err == nil && len(layered) > 0 {
+			result["layered_outline"] = layered
+		}
+		// 加载已有的弧摘要（弧级规划时需要参考前续弧的内容）
+		if volSummaries, err := t.store.LoadAllVolumeSummaries(); err == nil && len(volSummaries) > 0 {
+			result["volume_summaries"] = volSummaries
 		}
 		result["references"] = t.architectReferences()
 	}
@@ -181,6 +227,54 @@ func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int)
 		}
 	}
 	result["characters"] = filtered
+}
+
+// loadLayeredSummaries 分层摘要加载：卷摘要 + 当前卷弧摘要 + 弧内章摘要。
+func (t *ContextTool) loadLayeredSummaries(result map[string]any, chapter, summaryWindow int) {
+	vol, arc, err := t.store.LocateChapter(chapter)
+	if err != nil {
+		// 回退到扁平模式
+		if summaries, err := t.store.LoadRecentSummaries(chapter, summaryWindow); err == nil && len(summaries) > 0 {
+			result["recent_summaries"] = summaries
+		}
+		return
+	}
+
+	// 1. 已完成卷的卷摘要
+	if volSummaries, err := t.store.LoadAllVolumeSummaries(); err == nil && len(volSummaries) > 0 {
+		result["volume_summaries"] = volSummaries
+	}
+
+	// 2. 当前卷内已完成弧的弧摘要（不含当前弧）
+	if arcSummaries, err := t.store.LoadArcSummaries(vol); err == nil && len(arcSummaries) > 0 {
+		var prior []domain.ArcSummary
+		for _, s := range arcSummaries {
+			if s.Arc < arc {
+				prior = append(prior, s)
+			}
+		}
+		if len(prior) > 0 {
+			result["arc_summaries"] = prior
+		}
+	}
+
+	// 3. 当前弧内最近 N 章的章摘要
+	if summaries, err := t.store.LoadRecentSummaries(chapter, summaryWindow); err == nil && len(summaries) > 0 {
+		result["recent_summaries"] = summaries
+	}
+}
+
+// loadLayeredCharacters Layered 模式下的角色加载：优先用最近快照，回退到原始设定 + Tier 过滤。
+func (t *ContextTool) loadLayeredCharacters(result map[string]any, chapter int) {
+	snapshots, err := t.store.LoadLatestSnapshots()
+	if err == nil && len(snapshots) > 0 {
+		result["character_snapshots"] = snapshots
+		// 同时保留原始设定中的 core/important 角色（快照可能不含新登场角色）
+		t.loadFilteredCharacters(result, chapter)
+		return
+	}
+	// 无快照时回退到原始设定
+	t.loadFilteredCharacters(result, chapter)
 }
 
 // writerReferences 返回写作参考资料。章节 1 返回全量，后续章节裁剪掉不再需要的模板。

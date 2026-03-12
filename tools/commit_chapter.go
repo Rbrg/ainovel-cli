@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/voocel/agentcore/schema"
 	"github.com/voocel/ainovel-cli/domain"
@@ -139,7 +140,30 @@ func (t *CommitChapterTool) Execute(_ context.Context, args json.RawMessage) (js
 	if progress != nil {
 		completedCount = len(progress.CompletedChapters)
 	}
-	reviewRequired, reviewReason := domain.ShouldReview(completedCount)
+	// 6b. 长篇模式：弧级边界检测（替代固定间隔评审）+ 更新卷弧位置
+	var arcEnd, volumeEnd bool
+	var vol, arc int
+	if progress != nil && progress.Layered {
+		boundary, bErr := t.store.CheckArcBoundary(a.Chapter)
+		if bErr != nil {
+			log.Printf("[commit] 弧边界检测失败（chapter=%d）: %v", a.Chapter, bErr)
+		} else if boundary != nil {
+			arcEnd = boundary.IsArcEnd
+			volumeEnd = boundary.IsVolumeEnd
+			vol = boundary.Volume
+			arc = boundary.Arc
+			// 每次提交时更新卷弧位置，确保 novel_context 的 position 始终正确
+			_ = t.store.UpdateVolumeArc(vol, arc)
+		}
+	}
+
+	var reviewRequired bool
+	var reviewReason string
+	if progress != nil && progress.Layered {
+		reviewRequired, reviewReason = domain.ShouldArcReview(arcEnd, volumeEnd, vol, arc)
+	} else {
+		reviewRequired, reviewReason = domain.ShouldReview(completedCount)
+	}
 
 	// 7. 计算场景数
 	sceneCount := 0
@@ -158,6 +182,10 @@ func (t *CommitChapterTool) Execute(_ context.Context, args json.RawMessage) (js
 		ReviewReason:   reviewReason,
 		HookType:       a.HookType,
 		DominantStrand: a.DominantStrand,
+		ArcEnd:         arcEnd,
+		VolumeEnd:      volumeEnd,
+		Volume:         vol,
+		Arc:            arc,
 	}
 
 	// 9. 写入信号文件供宿主程序读取（优先于清理操作，确保信号不丢失）

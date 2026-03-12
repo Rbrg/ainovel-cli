@@ -27,8 +27,8 @@ func (t *SaveFoundationTool) Label() string { return "保存设定" }
 
 func (t *SaveFoundationTool) Schema() map[string]any {
 	return schema.Object(
-		schema.Property("type", schema.Enum("设定类型", "premise", "outline", "characters", "world_rules")).Required(),
-		schema.Property("content", schema.String("内容。premise 为 Markdown 文本，outline 和 characters 为 JSON 字符串")).Required(),
+		schema.Property("type", schema.Enum("设定类型", "premise", "outline", "layered_outline", "characters", "world_rules")).Required(),
+		schema.Property("content", schema.String("内容。premise 为 Markdown 文本，outline/layered_outline/characters/world_rules 为 JSON 字符串")).Required(),
 	)
 }
 
@@ -62,6 +62,31 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 		_ = t.store.SetTotalChapters(len(entries))
 		return json.Marshal(map[string]any{"saved": true, "type": "outline", "chapters": len(entries)})
 
+	case "layered_outline":
+		var volumes []domain.VolumeOutline
+		if err := json.Unmarshal([]byte(a.Content), &volumes); err != nil {
+			return nil, fmt.Errorf("parse layered_outline JSON: %w", err)
+		}
+		if err := t.store.SaveLayeredOutline(volumes); err != nil {
+			return nil, fmt.Errorf("save layered_outline: %w", err)
+		}
+		// 展开为扁平大纲，兼容现有 GetChapterOutline
+		flat := domain.FlattenOutline(volumes)
+		if err := t.store.SaveOutline(flat); err != nil {
+			return nil, fmt.Errorf("save flattened outline: %w", err)
+		}
+		total := domain.TotalChapters(volumes)
+		_ = t.store.UpdatePhase(domain.PhaseOutline)
+		_ = t.store.SetTotalChapters(total)
+		_ = t.store.SetLayered(true)
+		if len(volumes) > 0 && len(volumes[0].Arcs) > 0 {
+			_ = t.store.UpdateVolumeArc(volumes[0].Index, volumes[0].Arcs[0].Index)
+		}
+		return json.Marshal(map[string]any{
+			"saved": true, "type": "layered_outline",
+			"volumes": len(volumes), "chapters": total,
+		})
+
 	case "characters":
 		var chars []domain.Character
 		if err := json.Unmarshal([]byte(a.Content), &chars); err != nil {
@@ -83,6 +108,6 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 		return json.Marshal(map[string]any{"saved": true, "type": "world_rules", "count": len(rules)})
 
 	default:
-		return nil, fmt.Errorf("unknown type %q, expected premise/outline/characters/world_rules", a.Type)
+		return nil, fmt.Errorf("unknown type %q, expected premise/outline/layered_outline/characters/world_rules", a.Type)
 	}
 }

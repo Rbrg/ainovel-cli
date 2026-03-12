@@ -179,6 +179,33 @@ func (s *Store) ClearLastCommit() error {
 	return s.removeFile("meta/last_commit.json")
 }
 
+// UpdateVolumeArc 更新当前卷弧位置。
+func (s *Store) UpdateVolumeArc(volume, arc int) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.CurrentVolume = volume
+	p.CurrentArc = arc
+	return s.SaveProgress(p)
+}
+
+// SetLayered 设置分层模式标志。
+func (s *Store) SetLayered(layered bool) error {
+	p, err := s.LoadProgress()
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return nil
+	}
+	p.Layered = layered
+	return s.SaveProgress(p)
+}
+
 // SetFlow 更新当前流程状态。
 func (s *Store) SetFlow(flow domain.FlowState) error {
 	p, err := s.LoadProgress()
