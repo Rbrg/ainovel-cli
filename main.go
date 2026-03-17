@@ -66,7 +66,7 @@ func buildConfig(style string) app.Config {
 		Provider:  provider,
 		APIKey:    apiKey,
 		BaseURL:   baseURL,
-		ModelName: "openrouter/hunter-alpha",
+		ModelName: "stepfun/step-3.5-flash:free",
 		Style:     style,
 	}
 	return cfg

@@ -202,12 +202,8 @@ func renderEventFlowViewport(vp viewport.Model, width, height int, focused bool)
 
 // renderStreamPanel 渲染流式输出面板（中间列下半部分）。
 func renderStreamPanel(vp viewport.Model, width, height int, focused bool) string {
-	// 分隔标题栏
-	titleColor := colorDim
-	if focused {
-		titleColor = colorAccent
-	}
-	title := lipgloss.NewStyle().Foreground(titleColor).Render("✦ 生成内容")
+	// 分隔标题栏（始终醒目）
+	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(focused).Render("✦ 实时输出")
 	lineW := width - lipgloss.Width(title) - 4
 	if lineW < 0 {
 		lineW = 0
@@ -229,48 +225,94 @@ func renderStreamPanel(vp viewport.Model, width, height int, focused bool) strin
 	return header + "\n" + vpStyle.Render(vp.View())
 }
 
-// renderStreamContent 将流式输出按轮次渲染为分块内容，避免长段直接拼接导致错乱。
+// renderStreamContent 将流式输出按轮次渲染为语义分块。
+// Agent 调度块（以 ▸ 开头）用 accent 标题 + dim 指令；正文块用标准文本色。
 func renderStreamContent(rounds []string, width int) string {
 	if width < 24 {
 		width = 24
 	}
 
 	var blocks []string
-	displayIndex := 0
-	for i, round := range rounds {
+	for _, round := range rounds {
 		text := strings.TrimSpace(round)
 		if text == "" {
 			continue
 		}
-		displayIndex++
-		blocks = append(blocks, renderStreamBlock(displayIndex, text, width, i == len(rounds)-1))
+		if strings.HasPrefix(text, "▸") {
+			blocks = append(blocks, renderAgentBlock(text, width))
+		} else {
+			blocks = append(blocks, renderChapterBlock(text, width))
+		}
 	}
 	return strings.Join(blocks, "\n\n")
 }
 
-func renderStreamBlock(index int, text string, width int, active bool) string {
-	headerStyle := lipgloss.NewStyle().Foreground(colorDim)
-	bodyStyle := lipgloss.NewStyle().Foreground(colorText)
-	dividerColor := colorDim
-	if active {
-		headerStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-		dividerColor = colorAccent
-	}
+// renderAgentBlock 渲染 Agent 调度块：标题 + 分隔线 + 任务指令。
+func renderAgentBlock(text string, width int) string {
+	headerLine, body, _ := strings.Cut(text, "\n")
 
-	header := headerStyle.Render(fmt.Sprintf("◆ 第 %d 段", index))
-	divider := lipgloss.NewStyle().Foreground(dividerColor).Render(strings.Repeat("─", max(8, width)))
-	lines := wrapStreamText(text, max(16, width-4))
+	// 标题行 + 分隔线
+	titleW := lipgloss.Width(headerLine)
+	lineW := max(0, width-titleW-1)
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(headerLine) +
+		" " + lipgloss.NewStyle().Foreground(colorDim).Render(strings.Repeat("─", lineW))
 
 	var b strings.Builder
 	b.WriteString(header)
-	b.WriteString("\n")
-	b.WriteString(divider)
-	b.WriteString("\n")
-	for i, line := range lines {
-		if i > 0 {
-			b.WriteString("\n")
+
+	// 任务指令：dim 色，缩进 2 格
+	body = strings.TrimSpace(body)
+	if body != "" {
+		taskStyle := lipgloss.NewStyle().Foreground(colorMuted)
+		lines := wrapStreamText(body, max(16, width-6))
+		b.WriteString("\n")
+		for i, line := range lines {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(taskStyle.Render("  " + line))
 		}
-		b.WriteString(bodyStyle.Render(line))
+	}
+	return b.String()
+}
+
+// renderChapterBlock 渲染正文块，自动区分思考内容和章节正文。
+// 思考内容（ThinkingSep 标记的段落）用淡色斜体，正文用标准文本色。
+func renderChapterBlock(text string, width int) string {
+	contentStyle := lipgloss.NewStyle().Foreground(colorText)
+	thinkStyle := lipgloss.NewStyle().Foreground(colorDim).Italic(true)
+	wrapW := max(16, width-4)
+
+	// 按 ThinkingSep 分割：奇数段是思考，偶数段是正文
+	// 格式：[正文] \x02 [思考] [正文] \x02 [思考] ...
+	parts := strings.Split(text, app.ThinkingSep)
+
+	var b strings.Builder
+	for i, part := range parts {
+		part = strings.TrimRight(part, " ")
+		if part == "" {
+			continue
+		}
+		isThinking := i > 0 && i%2 != 0 // ThinkingSep 之后的奇数段是思考
+		// 如果整段都是思考标记开头（第一个 part 之前无正文），调整判断
+		if i == 0 && part == "" {
+			continue
+		}
+
+		style := contentStyle
+		if isThinking {
+			style = thinkStyle
+		}
+
+		lines := wrapStreamText(part, wrapW)
+		for j, line := range lines {
+			if b.Len() > 0 && j == 0 {
+				b.WriteString("\n")
+			} else if j > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(style.Render(line))
+		}
 	}
 	return b.String()
 }

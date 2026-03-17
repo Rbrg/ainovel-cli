@@ -6,6 +6,7 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	colorText    = lipgloss.Color("#e0d8c8")
 	colorDim     = lipgloss.Color("#666666")
+	colorMuted   = lipgloss.Color("#a09880") // 柔和但可读（介于 dim 和 text 之间）
 	colorAccent  = lipgloss.Color("#d4a017") // 琥珀黄
 	colorSuccess = lipgloss.Color("#2ecc71") // 冷绿
 	colorError   = lipgloss.Color("#e74c3c") // 朱红

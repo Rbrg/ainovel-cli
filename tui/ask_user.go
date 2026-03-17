@@ -257,7 +257,7 @@ func renderAskUserModal(width, height int, state *askUserState) string {
 		Border(baseBorder).
 		BorderForeground(colorAccent).
 		Padding(1, 2).
-		Background(lipgloss.Color("#1b1712")).
+		Background(lipgloss.Color("#2a2520")).
 		Render(b.String())
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)

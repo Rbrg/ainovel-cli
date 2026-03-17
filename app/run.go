@@ -122,6 +122,9 @@ func Run(cfg Config, refs tools.References, prompts Prompts, styles map[string]s
 // registerSubscription 注册 coordinator 事件订阅，包含确定性控制和可选的 UIEvent/Delta 转发。
 func registerSubscription(coordinator *agentcore.Agent, store *state.Store, provider string, emit emitFn, onDelta deltaFn, onClear clearFn) {
 	var lastProgressSummary string
+	agentExt := newFieldExtractor("agent")   // Coordinator → subagent 目标 agent 名称
+	taskExt := newFieldExtractor("task")     // Coordinator → subagent 调度指令
+	subFilter := newStreamFilter("content")  // SubAgent：文本透传 + JSON 提取 content
 
 	coordinator.Subscribe(func(ev agentcore.Event) {
 		switch ev.Type {
@@ -135,7 +138,9 @@ func registerSubscription(coordinator *agentcore.Agent, store *state.Store, prov
 			// 区分流式 delta 和进度摘要
 			if delta, ok := parseStreamDelta(ev); ok {
 				if onDelta != nil {
-					onDelta(delta)
+					if text := subFilter.Feed(delta); text != "" {
+						onDelta(text)
+					}
 				}
 				return
 			}
@@ -153,15 +158,23 @@ func registerSubscription(coordinator *agentcore.Agent, store *state.Store, prov
 			}
 
 		case agentcore.EventMessageStart:
-			// 新一轮 LLM 输出开始，清空流式缓冲
+			// 新一轮 LLM 输出开始，重置提取器 + 清空流式缓冲
+			agentExt.Reset()
+			taskExt.Reset()
+			subFilter.Reset()
 			if onClear != nil {
 				onClear()
 			}
 
 		case agentcore.EventMessageUpdate:
-			// Coordinator 自身思考时的流式 token
+			// Coordinator 的流式 token：先提取 agent 名称做标题，再提取 task 内容
 			if ev.Delta != "" && onDelta != nil {
-				onDelta(ev.Delta)
+				if name := agentExt.Feed(ev.Delta); name != "" {
+					onDelta("\n▸ " + agentLabel(name) + "\n")
+				}
+				if text := taskExt.Feed(ev.Delta); text != "" {
+					onDelta(text)
+				}
 			}
 
 		case agentcore.EventToolExecEnd:
@@ -804,6 +817,20 @@ func extractToolErrorText(result json.RawMessage) string {
 	}
 
 	return truncateLog(string(result), 160)
+}
+
+// agentLabel 将内部 agent 名称映射为用户友好的标签。
+func agentLabel(name string) string {
+	switch name {
+	case "architect_short", "architect_mid", "architect_long":
+		return "Architect 规划中"
+	case "writer":
+		return "Writer 创作中"
+	case "editor":
+		return "Editor 审阅中"
+	default:
+		return name
+	}
 }
 
 func truncateLog(s string, maxRunes int) string {

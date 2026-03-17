@@ -2,6 +2,10 @@
 
 全自动 AI 长篇小说创作引擎。基于多智能体协作架构，从一句话需求到完整小说，全程无需人工干预。
 
+<p align="center">
+  <img src="scripts/sample.gif" alt="ainovel-cli demo" width="800">
+</p>
+
 ## 特性
 
 - **多智能体协作** — Coordinator 调度 Architect / Writer / Editor 三个专职智能体，各司其职
@@ -11,7 +15,7 @@
 - **七维质量评审** — Editor 从设定一致性、角色行为、节奏、叙事连贯、伏笔、钩子、审美品质七个维度评审，审美维度必须引用原文举证
 - **用户实时干预** — 写作过程中可随时注入修改意见，系统自动评估影响范围并重写
 - **双模式运行** — CLI 一行命令直接跑，TUI 交互界面实时观察进度
-- **多 LLM 支持** — OpenRouter / Anthropic / Gemini / OpenAI 随意切换
+- **多 LLM 支持** — OpenRouter / Anthropic / Gemini / OpenAI 等等随意切换
 
 ## 架构
 
@@ -95,10 +99,12 @@ ainovel-cli
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `LLM_PROVIDER` | LLM 提供商 | `openrouter` |
+| `LLM_PROVIDER` | LLM 提供商（`openrouter` / `anthropic` / `gemini` / `openai`） | `openrouter` |
 | `OPENROUTER_API_KEY` | OpenRouter API Key | — |
 | `ANTHROPIC_API_KEY` | Anthropic API Key | — |
 | `GEMINI_API_KEY` | Gemini API Key | — |
+| `Z_OPENAI_API_KEY` | OpenAI 兼容接口 API Key（通用） | — |
+| `Z_OPENAI_BASE_URL` | OpenAI 兼容接口 Base URL | — |
 | `NOVEL_STYLE` | 写作风格 | `default` |
 
 ### 写作风格
@@ -118,7 +124,7 @@ output/{novel_name}/
 │   ├── 01.md
 │   └── ...
 ├── summaries/          # 章节摘要（JSON）
-├── drafts/             # 场景草稿
+├── drafts/             # 章节草稿
 ├── reviews/            # 评审报告
 ├── meta/
 │   ├── premise.md      # 故事前提
@@ -128,8 +134,9 @@ output/{novel_name}/
 │   ├── progress.json   # 进度状态
 │   ├── timeline.json   # 时间线
 │   ├── foreshadow.json # 伏笔台账
-│   └── snapshots/      # 角色状态快照（长篇）
-└── characters.md       # 角色档案（可读版）
+│   ├── snapshots/      # 角色状态快照（长篇）
+│   ├── characters.md   # 角色档案（可读版）
+│   └── world_rules.md  # 世界规则（可读版）
 ```
 
 ## 设计理念
